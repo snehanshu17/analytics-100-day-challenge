@@ -1,0 +1,126 @@
+-------------import data-------------------; 
+ 
+%web_drop_table(WORK.IMPORT); 
+ 
+ 
+FILENAME REFFILE '/folders/myfolders/Cancer/data.csv'; 
+ 
+PROC IMPORT DATAFILE=REFFILE 
+	DBMS=CSV 
+	OUT=WORK.cancer; 
+	GETNAMES=YES; 
+RUN; 
+ 
+PROC CONTENTS DATA=WORK.cancer; RUN; 
+ 
+ 
+%web_open_table(WORK.IMPORT); 
+ 
+*-------------------------------freq--------------------------; 
+ 
+proc freq data=WORK.cancer; 
+table diagnosis; 
+run; 
+ 
+ 
+ 
+*------------------------------means-----------------------; 
+ 
+proc means DATA=WORK.cancer n nmiss mean max min ; 
+ 
+---------------------------------------------------------; 
+ 
+data Cancer1; 
+set cancer; 
+if   diagnosis='M' 
+then New_diagnosis=1; 
+if   diagnosis='B' 
+then New_diagnosis=0; 
+ 
+ 
+ 
+proc reg data=Cancer1; 
+model New_diagnosis=id  
+radius_mean	texture_mean	 
+perimeter_mean	area_mean	smoothness_mean	compactness_mean	 
+concavity_mean	concave_points_mean	 symmetry_mean	fractal_dimension_mean 
+radius_se	texture_se	perimeter_se	area_se	smoothness_se	compactness_se 
+concavity_se	concave_points_se	symmetry_se	fractal_dimension_se	 
+radius_worst	texture_worst	perimeter_worst	area_worst	smoothness_worst	 
+compactness_worst	concavity_worst	concave_points_worst	 
+symmetry_worst	fractal_dimension_worst/ tol vif collin; 
+run; 
+ 
+ 
+--------- correlation----; 
+ 
+proc corr data=Cancer1; 
+ 
+---------------------------- 
+ 
+proc reg data=Cancer1; 
+model New_diagnosis=texture_mean perimeter_mean	 smoothness_mean 
+	compactness_mean	 
+ symmetry_mean/ tol vif collin;; 
+run; 
+ 
+ 
+-----------------------to divide the data into train and validate-------------; 
+proc  surveyselect data=Cancer1 
+method=srs out=Samp1 samprate=0.5 outall; 
+run; 
+ 
+ 
+proc print data=Samp1; 
+ 
+data train validate; 
+set Samp1; 
+if selected=0 then output train; 
+else  if selected=1 then output Validate; 
+run; 
+ 
+----------------------------------logistic ----------------------; 
+proc logistic data=train descending ; 
+model New_diagnosis=texture_mean perimeter_mean	 smoothness_mean	 
+ symmetry_mean/ctable lackfit; 
+  
+ --------- 
+ proc logistic data=train descending outmodel=ccc; 
+model New_diagnosis=texture_mean perimeter_mean	 smoothness_mean	 
+ symmetry_mean; 
+ score out=ccp; 
+  
+  
+ -------------use the above outmodel to validate the model--------; 
+  
+Proc logistic data=Validate descending outmodel=ccc; 
+model New_diagnosis=texture_mean perimeter_mean	 smoothness_mean	 
+ symmetry_mean; 
+ score out=ccp; 
+  
+-------------------------Rank creation---------; 
+ 
+proc print data=ccp; 
+ 
+proc rank data=ccp out=decile group=10 ties=mean; 
+var P_1; 
+ranks decile; 
+run; 
+ 
+ 
+proc sort data=decile; 
+by descending P_1; 
+ 
+------------------check acuracy-----------------------; 
+ 
+data testacc; 
+set ccp; 
+if F_New_diagnosis=0 and I_New_diagnosis=0 then out='True Negative'; 
+else if F_New_diagnosis=1 and I_New_diagnosis=1 then out='True Positive'; 
+else if F_New_diagnosis=0 and I_New_diagnosis=1 then out='False Positive'; 
+else if F_New_diagnosis=1 and I_New_diagnosis=0 then out='False Negative'; 
+ 
+ 
+proc freq; 
+tables out; 
+run; 
